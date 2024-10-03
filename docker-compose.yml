@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+    app:
+        image: lara-app
+        container_name: lara-app
+        restart: always
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+                APP_PORT: '${APP_PORT:-8000}'
+        volumes:
+            - ./:/var/www/html
+        depends_on:
+            - postgres
+            - redis
+        ports:
+            - "${APP_PORT_FORWARD:-8000}:${APP_PORT:-8000}"
+        environment:
+            - APP_PORT=${APP_PORT:-8000}
+        networks:
+            - app-network
+        healthcheck:
+            test: ["CMD", "php", "artisan", "health:check"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
+
+    postgres:
+        image: "postgres:${POSTGRES_IMAGE_TAG:-16.2}"
+        container_name: lara-postgres
+        restart: always
+        environment:
+            - POSTGRES_DB=${DB_DATABASE:-laravel}
+            - POSTGRES_USER=${DB_USERNAME:-postgres}
+            - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+            - PGPASSWORD=${DB_PASSWORD:-postgres}
+        volumes:
+            - lara_postgres_data:/var/lib/postgresql/data
+        ports:
+            - "${DB_PORT_FORWARD:-5432}:5432"
+        healthcheck:
+            test:
+                - CMD
+                - pg_isready
+                - '-q'
+                - '-d'
+                - '${DB_DATABASE:-laravel}'
+                - '-U'
+                - '${DB_USERNAME:-postgres}'
+            retries: 3
+            timeout: 5s
+        networks:
+            - app-network
+
+    redis:
+        image: "redis:${REDIS_IMAGE_TAG:-alpine}"
+        container_name: lara-redis
+        restart: always
+        command: ["redis-server", "--appendonly", "yes"]
+        volumes:
+            - lara_redis_data:/data
+        depends_on:
+            - postgres
+        ports:
+            - "${REDIS_PORT_FORWARD:-6379}:6379"
+        networks:
+            - app-network
+
+    redis-commander:
+        image: rediscommander/redis-commander:latest
+        container_name: lara-redis-commander
+        restart: always
+        environment:
+            - REDIS_HOSTS=local:redis:6379
+            - HTTP_USER=${REDIS_COMMANDER_USER:-root}
+            - HTTP_PASSWORD=${REDIS_COMMANDER_PASSWORD:-123456}
+        ports:
+            - "${REDIS_COMMANDER_PORT_FORWARD:-6388}:8081"
+        depends_on:
+            - redis
+        networks:
+            - app-network
+
+volumes:
+    lara_postgres_data:
+    lara_redis_data:
+
+networks:
+    app-network:
